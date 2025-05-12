@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-slack-assistant"
+version = "0.1.0"
+description = "An AI-powered Slack bot to help with daily work tasks"
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+
+authors = [
+  { name = "Vaibhav Jain", email = "vajain@redhat.com" }
+]
+
+dependencies = [
+  "python-dotenv",
+  "llama-stack-client",
+  "slack-sdk",
+  "slack-bolt",
+  "flask"
+]
+
+[project.urls]
+Homepage = "https://github.com/vaibhavjainwiz/ai-slack-assistant"
