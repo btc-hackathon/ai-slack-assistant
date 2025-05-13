@@ -54,26 +54,6 @@ def my_function(text):
     return response
 
 
-# @app.event("app_mention")
-# def handle_mentions(body, say):
-#     """
-#     Event listener for mentions in Slack.
-#     When the bot is mentioned, this function processes the text and sends a response.
-#
-#     Args:
-#         body (dict): The event data received from Slack.
-#         say (callable): A function for sending a response to the channel.
-#     """
-#     text = body["event"]["text"]
-#
-#     mention = f"<@{SLACK_BOT_USER_ID}>"
-#     text = text.replace(mention, "").strip()
-#
-#     say("Sure, I'll get right on that!")
-#     #response = my_function(text)
-#     response = query_llm(text)
-#     say(response)
-
 @app.event("app_mention")
 def handle_mentions(body, say):
     """
@@ -96,7 +76,13 @@ def handle_mentions(body, say):
     thread_messages = get_thread_messages(channel_id, thread_ts)
 
     # Combine the messages into a single string (you can customize this format as needed)
-    slack_thread = "\n".join([f"{msg['user']}: {msg['text']}" for msg in thread_messages])
+    slack_thread = ""
+    for msg in thread_messages:
+        user = msg.get('user', 'Unknown User')
+        text = msg.get('text', '')
+        mention = f"<@{SLACK_BOT_USER_ID}>"
+        cleaned_text = text.replace(mention, "").strip()
+        slack_thread += f"{user}: {cleaned_text}\n"
 
     # Pass the entire thread to the query_llm function
     response = query_llm(slack_thread)

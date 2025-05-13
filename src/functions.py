@@ -3,6 +3,7 @@ from llama_stack_client import Agent, LlamaStackClient
 from llama_stack_client.types.shared_params.agent_config import ToolConfig
 from llama_stack_client.types.toolgroup_register_params import McpEndpoint
 
+
 load_dotenv(find_dotenv())
 
 
@@ -15,21 +16,20 @@ def create_agent(client: LlamaStackClient, model: str) -> Agent:
         mcp_endpoint=McpEndpoint(uri="http://localhost:8000/sse"),
     )
 
-    instruction = """
-    You are Jarvis, an AI assistant integrated into Slack. You help users interact with Jira through natural conversation.
+    client.toolgroups.register(
+        toolgroup_id="mcp::linkedin",
+        provider_id="model-context-protocol",
+        mcp_endpoint=McpEndpoint(uri="http://localhost:3004/sse"),
+    )
 
-    You receive full Slack threads, which may include prior discussions, context, and references to Jira tickets. Your job is to:
-    1. Analyze the thread for the Jira ticket being discussed (e.g., ticket ID like "PROJ-123").
-    2. Understand the user’s intent from the latest message.
-    3. **Immediately take action by calling the appropriate tool with the required parameters. Do not ask for confirmation before acting.**
+    client.toolgroups.register(
+        toolgroup_id="mcp::workday",
+        provider_id="model-context-protocol",
+        mcp_endpoint=McpEndpoint(uri="http://localhost:3005/sse"),
+    )
 
-    Guidelines:
-    - Only call tools when you’re sufficiently confident in both the Jira ticket and the user’s intent.
-    - If information is clearly missing or ambiguous, ask a clarifying question.
-    - Your tone should be helpful, concise, and aligned with Slack's informal style.
-
-    Only respond in natural language when appropriate. If a tool call is needed, execute it directly without waiting for confirmation.
-    """
+    instruction = """You are an intelligent assistant working with Slack threads that may include prior discussions 
+    and context."""
 
     return Agent(
         client,
@@ -37,10 +37,9 @@ def create_agent(client: LlamaStackClient, model: str) -> Agent:
         instructions=instruction,
         enable_session_persistence=False,
         tool_config=ToolConfig(
-            tool_choice="required",
-            tool_prompt_format="python_list",
+            tool_choice="auto",
         ),
-        tools=["mcp::jira_helper"]
+        tools=["mcp::jira_helper", "mcp::linkedin", "mcp::workday"]
     )
 
 
@@ -66,19 +65,29 @@ def handle_responses(agent: Agent, session_id: str, user_prompts: list[str]) -> 
 
 
 def query_llm(slack_thread):
-    client = LlamaStackClient(base_url="http://localhost:8321")
+    client = LlamaStackClient(
+        base_url=f"http://localhost:8321",
+    )
 
     models = client.models.list()
 
     model_id = next(m for m in models if m.model_type == "llm").identifier
 
     agent = create_agent(client, model_id)
+
     user_prompts = [
-        f"Only respond in natural language when appropriate. If a tool call is needed, execute it directly without "
-        f"waiting for confirmation. Slack thread:\n{slack_thread}\n\nUser's input:"
+        f"""        
+        Given Slack threads may include prior discussions and context. 
+        Your job is to understand the user’s intent from the latest message.
+        and If a tool call is needed, execute it immediately and wait for the result.
+        Do not ask for confirmation before or after the tool call.
+        Explain your actions in natural language.
+        
+        Slack Thread: {slack_thread}
+        """
     ]
 
-    session_id = agent.create_session("Jira-session")
+    session_id = agent.create_session("slack-bot-session")
 
     response = handle_responses(agent, session_id, user_prompts)
 

@@ -1,0 +1,12 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: ai-slack-assistant
+spec:
+  to:
+    kind: Service
+    name: ai-slack-assistant
+  port:
+    targetPort: 8080
+  tls:
+    termination: edge
