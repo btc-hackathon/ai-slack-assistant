@@ -1,5 +1,7 @@
 # Slack AI Assistant with Python & Llama Stack
 
+![High level Design](/Users/vajain/repo/btc_hackathon/ai-slack-assistant/hld.png)
+
 Here's a step-by-step guide to creating a Slack bot, installing it in a workspace, setting up a Python code with Flask, and using ngrok.
 
 Interacting with AI agents via Slack provides a more natural way of communication and provides an integration with your team's workflow and allows for the integration of multiple bots for various tasks. This can improve efficiency and streamline communication, while also allowing the AI agents to become an integral part of your team.
