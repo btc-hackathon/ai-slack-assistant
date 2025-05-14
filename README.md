@@ -1,6 +1,6 @@
 # Slack AI Assistant with Python & Llama Stack
 
-![High level Design](/Users/vajain/repo/btc_hackathon/ai-slack-assistant/hld.png)
+![High level Design](hld.png)
 
 Here's a step-by-step guide to creating a Slack bot, installing it in a workspace, setting up a Python code with Flask, and using ngrok.
 
