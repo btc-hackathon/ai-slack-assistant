@@ -1,6 +1,6 @@
 # Slack AI Assistant with Python & Llama Stack
 
-![High level Design](hld.png)
+<img src="hld.png" alt="High level Design" width="300" height="450"/>
 
 Here's a step-by-step guide to creating a Slack bot, installing it in a workspace, setting up a Python code with Flask, and using ngrok.
 
