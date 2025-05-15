@@ -1,6 +1,6 @@
 python-dotenv
-langchain
-openai
-slack-sdk 
-slack-bolt 
+llama-stack-client
+slack-sdk
+slack-bolt
 flask
+setuptools

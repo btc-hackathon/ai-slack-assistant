@@ -1,34 +1,106 @@
-FROM registry.access.redhat.com/ubi9/python-311
+# -----------------------------------------------------------------------------
+# Global Arguments
+# -----------------------------------------------------------------------------
+# Or a more recent UBI 9 tag if available
+ARG BASE_UBI_IMAGE_TAG=9.6
+ARG PYTHON_VERSION=3.12
 
-# Create a writable app directory
-ENV APP_HOME=/opt/app
-WORKDIR $APP_HOME
+# -----------------------------------------------------------------------------
+# Base Layer
+# -----------------------------------------------------------------------------
+FROM registry.access.redhat.com/ubi9/ubi-minimal:${BASE_UBI_IMAGE_TAG} as base
+ARG PYTHON_VERSION
 
-# Copy files first
-COPY pyproject.toml ./
+ENV PYTHON_VERSION=${PYTHON_VERSION}
 
-# Fix permissions to allow arbitrary UID to write
-RUN mkdir -p $APP_HOME && \
-    chmod -R g+rwX $APP_HOME && \
-    chown -R 1001:0 $APP_HOME && \
-    pip install --no-cache-dir poetry && \
-    poetry config virtualenvs.create false
+RUN microdnf -y update && \
+    microdnf install -y \
+    python${PYTHON_VERSION}-pip \
+    python${PYTHON_VERSION}-wheel && \
+    microdnf clean all
 
-# Install dependencies
-RUN poetry install --no-interaction --no-ansi
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
 
-# Copy the rest of the code
-COPY src/ ./src
-COPY README.md LICENSE ./
+WORKDIR /workspace
 
-# Expose the app port
-EXPOSE 8080
+# -----------------------------------------------------------------------------
+# Python Installer Layer (for creating a virtual environment)
+# -----------------------------------------------------------------------------
+FROM base as python-install
+ARG PYTHON_VERSION
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1 \
-    PORT=8080
+ENV VIRTUAL_ENV=/opt/mcp
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# Default non-root user for OpenShift (will run as random UID)
-USER 1001
+RUN microdnf install -y python${PYTHON_VERSION}-devel && \
+    python${PYTHON_VERSION} -m venv $VIRTUAL_ENV && \
+    . $VIRTUAL_ENV/bin/activate && \
+    pip install --no-cache-dir --upgrade pip wheel uv && \
+    microdnf clean all
 
-CMD ["python", "src/app.py"]
+# -----------------------------------------------------------------------------
+# Development Layer (install dependencies)
+# -----------------------------------------------------------------------------
+FROM python-install as dev
+
+
+# Copy only the requirements file first to leverage Docker cache
+COPY requirements.txt ./
+
+RUN --mount=type=cache,id=pip-cache,target=/root/.cache/pip \
+    --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
+    uv pip install --no-cache-dir -r requirements.txt
+
+# -----------------------------------------------------------------------------
+# Builder Layer (build the application)
+# -----------------------------------------------------------------------------
+FROM dev as build
+
+# Copy necessary files for building the wheel
+COPY setup.py ./
+COPY README.md ./
+COPY LICENSE ./
+COPY requirements.txt ./
+COPY src ./src/
+
+# Run setup.py from the project root (/workspace)
+# Ensure python from venv is used
+RUN $VIRTUAL_ENV/bin/python setup.py bdist_wheel --dist-dir=dist
+
+# -----------------------------------------------------------------------------
+# Final Production Layer
+# -----------------------------------------------------------------------------
+FROM python-install as final
+
+
+ENV APP_USER_HOME=/home/mcp \
+    APP_USER_NAME=mcp \
+    APP_USER_UID=2000
+ENV HOME=${APP_USER_HOME}
+
+RUN useradd --uid ${APP_USER_UID} --gid 0 -d ${APP_USER_HOME} -m ${APP_USER_NAME} && \
+    chown -R ${APP_USER_UID}:0 ${VIRTUAL_ENV} /workspace ${APP_USER_HOME} && \
+    chmod -R g+rwx ${VIRTUAL_ENV} /workspace ${APP_USER_HOME}
+
+# Copy the built wheel from the builder stage
+# Source path is /workspace/dist in the 'build' stage
+COPY --from=build /workspace/dist /workspace/dist
+
+# Copy the application source code (needed for app.py to run directly)
+# Source path is /workspace/src in the 'build' stage
+COPY --from=build /workspace/src /workspace/src
+
+# Install the wheel into the virtual environment
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+RUN $VIRTUAL_ENV/bin/pip install --no-cache-dir /workspace/dist/*.whl && \
+    rm -rf /workspace/dist
+
+# Set WORKDIR to the directory containing app.py
+WORKDIR ${APP_USER_HOME}
+
+# Change to non-root user
+USER ${APP_USER_UID}
+
+# Command to run the application
+ENTRYPOINT ["python", "-m", "ai_slack_assistant"]

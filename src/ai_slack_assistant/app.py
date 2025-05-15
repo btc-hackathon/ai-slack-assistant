@@ -1,14 +1,12 @@
 import os
+
+from flask import Flask, request
+from slack_bolt import App
+from slack_bolt.adapter.flask import SlackRequestHandler
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-from slack_bolt.adapter.flask import SlackRequestHandler
-from slack_bolt import App
-from dotenv import find_dotenv, load_dotenv
-from flask import Flask, request
-from functions import query_llm
 
-# Load environment variables from .env file
-load_dotenv(find_dotenv())
+from .functions import query_llm
 
 # Set Slack API credentials
 SLACK_BOT_TOKEN = os.environ["SLACK_BOT_TOKEN"]
@@ -27,31 +25,18 @@ handler = SlackRequestHandler(app)
 def get_bot_user_id():
     """
     Get the bot user ID using the Slack API.
+
     Returns:
-        str: The bot user ID.
+        str: The bot user ID, or None if an error occurs.
     """
     try:
         # Initialize the Slack client with your bot token
-        slack_client = WebClient(token=os.environ["SLACK_BOT_TOKEN"])
+        slack_client = WebClient(token=SLACK_BOT_TOKEN) # Use the constant
         response = slack_client.auth_test()
         return response["user_id"]
     except SlackApiError as e:
-        print(f"Error: {e}")
-
-
-def my_function(text):
-    """
-    Custom function to process the text and return a response.
-    In this example, the function converts the input text to uppercase.
-
-    Args:
-        text (str): The input text to process.
-
-    Returns:
-        str: The processed text.
-    """
-    response = text.upper()
-    return response
+        print(f"Error fetching bot user ID: {e}")
+        return None
 
 
 @app.event("app_mention")
@@ -64,31 +49,39 @@ def handle_mentions(body, say):
         body (dict): The event data received from Slack.
         say (callable): A function for sending a response to the channel.
     """
-    # text = body["event"]["text"]
-    # mention = f"<@{SLACK_BOT_USER_ID}>"
-    # text = text.replace(mention, "").strip()
-    # response = query_llm(text)
+    event = body["event"]
+    channel_id = event["channel"]
+    # Get thread_ts; fallback to message ts if not in a thread
+    thread_ts = event.get("thread_ts", event["ts"])
 
-    channel_id = body["event"]["channel"]
-    thread_ts = body["event"].get("thread_ts",
-                                  body["event"]["ts"])  # Get thread_ts, fallback to message ts if not in a thread
     # Fetch all messages from the thread
     thread_messages = get_thread_messages(channel_id, thread_ts)
 
-    # Combine the messages into a single string (you can customize this format as needed)
-    slack_thread = ""
+    if not thread_messages:
+        say(text="Sorry, I couldn't retrieve the thread messages.", thread_ts=thread_ts)
+        return
+
+    # Combine the messages into a single string
+    slack_thread_content = []
+    bot_mention_string = f"<@{SLACK_BOT_USER_ID}>"
     for msg in thread_messages:
-        user = msg.get('user', 'Unknown User')
-        text = msg.get('text', '')
-        mention = f"<@{SLACK_BOT_USER_ID}>"
-        cleaned_text = text.replace(mention, "").strip()
-        slack_thread += f"{user}: {cleaned_text}\n"
+        user = msg.get("user", "Unknown User")
+        text = msg.get("text", "")
+        # Remove bot mention and strip whitespace
+        cleaned_text = text.replace(bot_mention_string, "").strip()
+        if cleaned_text: # Only add if there's actual content after stripping mention
+            slack_thread_content.append(f"{user}: {cleaned_text}")
+
+    full_thread_text = "\n".join(slack_thread_content)
 
     # Pass the entire thread to the query_llm function
-    response = query_llm(slack_thread)
+    if full_thread_text:
+        response_text = query_llm(full_thread_text)
+    else:
+        response_text = "It looks like there's no text in this thread for me to process after removing mentions."
 
-    # Send the response back to Slack (either in the thread or the channel)
-    say(text=response, thread_ts=thread_ts)
+    # Send the response back to Slack
+    say(text=response_text, thread_ts=thread_ts)
 
 
 def get_thread_messages(channel_id, thread_ts):
@@ -100,23 +93,21 @@ def get_thread_messages(channel_id, thread_ts):
         thread_ts (str): The timestamp of the original thread message.
 
     Returns:
-        list: A list of message dictionaries from the thread.
+        list: A list of message dictionaries from the thread, or an empty list on error.
     """
     try:
         # Initialize the Slack client with your bot token
-        slack_client = WebClient(token=os.environ["SLACK_BOT_TOKEN"])
+        slack_client = WebClient(token=SLACK_BOT_TOKEN) # Use the constant
         # Call the conversations.replies API method to get thread replies
         response = slack_client.conversations_replies(
             channel=channel_id,
             ts=thread_ts  # The timestamp of the thread's parent message
         )
-
         # Extract the messages from the response
-        messages = response['messages']
+        messages = response.get("messages", [])
         return messages
-
     except SlackApiError as e:
-        print(f"Error reading thread: {e.response['error']}")
+        print(f"Error reading thread: {e.response.get('error', str(e))}")
         return []
 
 
@@ -130,8 +121,3 @@ def slack_events():
         Response: The result of handling the request.
     """
     return handler.handle(request)
-
-
-# Run the Flask app
-if __name__ == "__main__":
-    flask_app.run()
